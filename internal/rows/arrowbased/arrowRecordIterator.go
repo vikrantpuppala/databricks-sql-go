@@ -40,8 +40,11 @@ var _ rows.ArrowBatchIterator = (*arrowRecordIterator)(nil)
 
 // Retrieve the next arrow record
 func (ri *arrowRecordIterator) Next() (arrow.Record, error) {
-	if !ri.HasNext() {
-		// returning EOF indicates that there are no more records to iterate
+	if err := ri.checkFinished(); err != nil {
+		return nil, err
+	}
+
+	if ri.isFinished {
 		return nil, io.EOF
 	}
 
@@ -60,9 +63,12 @@ func (ri *arrowRecordIterator) Next() (arrow.Record, error) {
 }
 
 // Indicate whether there are any more records available
-func (ri *arrowRecordIterator) HasNext() bool {
-	ri.checkFinished()
-	return !ri.isFinished
+func (ri *arrowRecordIterator) HasNext() (bool, error) {
+	err := ri.checkFinished()
+	if err != nil {
+		return false, err
+	}
+	return !ri.isFinished, nil
 }
 
 // Free any resources associated with this iterator
@@ -83,33 +89,68 @@ func (ri *arrowRecordIterator) Close() {
 	}
 }
 
-func (ri *arrowRecordIterator) checkFinished() {
-	finished := ri.isFinished ||
-		((ri.currentBatch == nil || !ri.currentBatch.HasNext()) &&
-			(ri.batchIterator == nil || !ri.batchIterator.HasNext()) &&
-			(ri.resultPageIterator == nil || !ri.resultPageIterator.HasNext()))
+func (ri *arrowRecordIterator) checkFinished() error {
+	if ri.isFinished {
+		return nil
+	}
+
+	hasNext := true
+	var err error
+	if ri.resultPageIterator != nil {
+		hasNext, err = ri.resultPageIterator.HasNext()
+		if err != nil {
+			ri.Close()
+			return err
+		}
+	}
+
+	var batchHasNext bool
+	if ri.batchIterator != nil {
+		batchHasNext, err = ri.batchIterator.HasNext()
+		if err != nil {
+			ri.Close()
+			return err
+		}
+	}
+
+	var currentBatchHasNext bool
+	if ri.currentBatch != nil {
+		currentBatchHasNext, err = ri.currentBatch.HasNext()
+		if err != nil {
+			ri.Close()
+			return err
+		}
+	}
+
+	finished := !hasNext && !batchHasNext && !currentBatchHasNext
 
 	if finished {
-		// Reached end of result set so Close
 		ri.Close()
 	}
+
+	return nil
 }
 
 // Update the current batch if necessary
 func (ri *arrowRecordIterator) getCurrentBatch() error {
-
 	// only need to update if no current batch or current batch has no more records
-	if ri.currentBatch == nil || !ri.currentBatch.HasNext() {
+	if ri.currentBatch != nil {
+		hasNext, err := ri.currentBatch.HasNext()
+		if err != nil {
+			return err
+		}
+		if !hasNext {
+			// release current batch
+			ri.currentBatch.Close()
+			ri.currentBatch = nil
+		}
+	}
 
+	if ri.currentBatch == nil {
 		// ensure up to date batch iterator
 		err := ri.getBatchIterator()
 		if err != nil {
 			return err
-		}
-
-		// release current batch
-		if ri.currentBatch != nil {
-			ri.currentBatch.Close()
 		}
 
 		// Get next batch from batch iterator
@@ -126,13 +167,19 @@ func (ri *arrowRecordIterator) getCurrentBatch() error {
 func (ri *arrowRecordIterator) getBatchIterator() error {
 	// only need to update if there is no batch iterator or the
 	// batch iterator has no more batches
-	if ri.batchIterator == nil || !ri.batchIterator.HasNext() {
-		if ri.batchIterator != nil {
+	if ri.batchIterator != nil {
+		hasNext, err := ri.batchIterator.HasNext()
+		if err != nil {
+			return err
+		}
+		if !hasNext {
 			// release any resources held by the current batch iterator
 			ri.batchIterator.Close()
 			ri.batchIterator = nil
 		}
+	}
 
+	if ri.batchIterator == nil {
 		// Get the next page of the result set
 		resp, err := ri.resultPageIterator.Next()
 		if err != nil {

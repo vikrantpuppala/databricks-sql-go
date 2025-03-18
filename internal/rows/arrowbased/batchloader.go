@@ -23,7 +23,7 @@ import (
 
 type BatchIterator interface {
 	Next() (SparkArrowBatch, error)
-	HasNext() bool
+	HasNext() (bool, error)
 	Close()
 }
 
@@ -106,10 +106,10 @@ func (bi *localBatchIterator) Next() (SparkArrowBatch, error) {
 	return nil, io.EOF
 }
 
-func (bi *localBatchIterator) HasNext() bool {
+func (bi *localBatchIterator) HasNext() (bool, error) {
 	// `Next()` will first increment an index, and only then return a batch
 	// So `HasNext` should check if index can be incremented and still be within array
-	return bi.index+1 < len(bi.batches)
+	return bi.index+1 < len(bi.batches), nil
 }
 
 func (bi *localBatchIterator) Close() {
@@ -166,8 +166,8 @@ func (bi *cloudBatchIterator) Next() (SparkArrowBatch, error) {
 	return batch, nil
 }
 
-func (bi *cloudBatchIterator) HasNext() bool {
-	return (bi.pendingLinks.Len() > 0) || (bi.downloadTasks.Len() > 0)
+func (bi *cloudBatchIterator) HasNext() (bool, error) {
+	return (bi.pendingLinks.Len() > 0) || (bi.downloadTasks.Len() > 0), nil
 }
 
 func (bi *cloudBatchIterator) Close() {

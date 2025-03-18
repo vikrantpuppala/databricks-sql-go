@@ -24,7 +24,7 @@ import (
 type SparkArrowBatch interface {
 	rowscanner.Delimiter
 	Next() (SparkArrowRecord, error)
-	HasNext() bool
+	HasNext() (bool, error)
 	Close()
 }
 
@@ -703,7 +703,14 @@ func (b *sparkArrowBatch) Next() (SparkArrowRecord, error) {
 	return nil, io.EOF
 }
 
-func (b *sparkArrowBatch) HasNext() bool { return b != nil && len(b.arrowRecords) > 0 }
+func (b *sparkArrowBatch) HasNext() (bool, error) {
+	if len(b.arrowRecords) > 0 {
+		return true, nil
+	}
+
+	// no more records
+	return false, io.EOF
+}
 
 func (b *sparkArrowBatch) Close() {
 	// Release any arrow records

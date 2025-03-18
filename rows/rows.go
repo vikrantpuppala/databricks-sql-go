@@ -16,7 +16,8 @@ type ArrowBatchIterator interface {
 	Next() (arrow.Record, error)
 
 	// Return true if the iterator contains more batches, false otherwise.
-	HasNext() bool
+	// May return an error if fetching the next batch fails.
+	HasNext() (bool, error)
 
 	// Release any resources in use by the iterator.
 	Close()
