@@ -80,7 +80,15 @@ func loopWithHasNext(db *sql.DB) {
 	}
 
 	var iBatch, nRows int
-	for batches.HasNext() {
+	for {
+		hasNext, err := batches.HasNext()
+		if err != nil {
+			log.Fatalf("Failure checking for next batch. err: %v", err)
+		}
+		if !hasNext {
+			break
+		}
+
 		b, err := batches.Next()
 		if err != nil {
 			log.Fatalf("Failure retrieving batch. err: %v", err)

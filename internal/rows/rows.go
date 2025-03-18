@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"io"
 	"math"
 	"reflect"
@@ -456,7 +457,11 @@ func (r *rows) fetchResultPage() error {
 		r.RowScanner = nil
 	}
 
-	if !r.ResultPageIterator.HasNext() {
+	hasNext, hasNextErr := r.ResultPageIterator.HasNext()
+	if !hasNext {
+		if hasNextErr != nil {
+			return hasNextErr
+		}
 		return io.EOF
 	}
 
